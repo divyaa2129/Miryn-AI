@@ -1,0 +1,44 @@
+# Git ignore rules for MirynAI repository
+
+# Environment and secrets
+.env
+.env.*
+*.env
+*.env.local
+miryn/.env
+miryn/backend/.env
+miryn/frontend/.env
+body.json
+body.local.json
+body.json.local
+secrets/
+*.pem
+*.key
+*.pfx
+*.p12
+*.cer
+
+# Vertex / cloud config exports
+.env.vertex
+usage_log.json
+gcloud-credentials.json
+service-account-key.json
+
+docker-data/
+
+# Node / frontend
+node_modules/
+.next/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
