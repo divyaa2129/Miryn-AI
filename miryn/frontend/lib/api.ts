@@ -1,4 +1,14 @@
-import type { Conversation, EvolutionLogEntry, IdentityUpdatePayload, MemorySnapshot, OnboardingPayload } from "@/lib/types";
+import type {
+  Conversation,
+  EvolutionLogEntry,
+  IdentityUpdatePayload,
+  ImportStatus,
+  MemorySnapshot,
+  NotificationPreferences,
+  OnboardingPayload,
+  Session,
+  User,
+} from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -151,6 +161,21 @@ class ApiClient {
     });
   }
 
+  async getMe() {
+    return this.request("/auth/me") as Promise<User>;
+  }
+
+  async updatePassword(currentPassword: string, newPassword: string) {
+    return this.request("/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+  }
+
+  async getSessions() {
+    return this.request("/auth/sessions") as Promise<Session[]>;
+  }
+
   async deleteAccount() {
     return this.request("/auth/account", {
       method: "DELETE",
@@ -270,6 +295,13 @@ class ApiClient {
     return this.request("/notifications/");
   }
 
+  async updateNotificationPreferences(prefs: NotificationPreferences) {
+    return this.request("/notifications/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(prefs),
+    });
+  }
+
   async markNotificationRead(id: string) {
     return this.request(`/notifications/read/${id}`, {
       method: "POST",
@@ -284,6 +316,28 @@ class ApiClient {
     return this.request(`/memory/${id}`, {
       method: "DELETE",
     });
+  }
+
+  async importChatGPT(file: File) {
+    if (!this.token) this.loadToken();
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_URL}/import/chatgpt`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.token}`,
+      },
+      body: form,
+    });
+    if (!res.ok) {
+      const message = await this.parseError(res);
+      throw new Error(message || "Import failed");
+    }
+    return res.json();
+  }
+
+  async getImportStatus() {
+    return this.request("/import/status") as Promise<ImportStatus>;
   }
 }
 

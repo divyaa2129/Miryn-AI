@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import type { EvolutionLogEntry, Identity } from "@/lib/types";
+import ChatGPTImport from "@/components/Import/ChatGPTImport";
 
 const tone = [
   "bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_transparent_55%)]",
@@ -54,17 +55,21 @@ export default function IdentityDashboard() {
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [evolution, setEvolution] = useState<EvolutionLogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     api.loadToken();
-    api
-      .getIdentity()
-      .then(setIdentity)
-      .catch((e) => setError(e.message || "Failed to load identity"));
-    api
-      .getEvolution()
-      .then((data) => setEvolution(data || []))
-      .catch(() => setEvolution([]));
+    const loadData = () => {
+      api
+        .getIdentity()
+        .then(setIdentity)
+        .catch((e) => setError(e.message || "Failed to load identity"));
+      api
+        .getEvolution()
+        .then((data) => setEvolution(data || []))
+        .catch(() => setEvolution([]));
+    };
+    loadData();
   }, []);
 
   const stats = useMemo(() => {
@@ -103,11 +108,17 @@ export default function IdentityDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-3 md:gap-4">
+            <button
+              onClick={() => setShowImport(true)}
+              className="rounded-full border border-accent-purple/30 bg-accent-purple/10 px-3 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs uppercase tracking-[0.2em] text-accent-purple hover:bg-accent-purple/20 transition-all"
+            >
+              Seed with ChatGPT
+            </button>
             <div className="rounded-full border border-amber-300/30 bg-amber-500/10 px-3 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs uppercase tracking-[0.2em] text-amber-200">
               State: {identity.state}
             </div>
             <div className="rounded-full border border-white/10 bg-white/5 px-3 md:px-4 py-1.5 md:py-2 text-[10px] md:text-xs uppercase tracking-[0.2em] text-white/70">
-              {identity.version != null ? `v${identity.version}` : '—'}
+              {identity.version != null ? `v${identity.version}` : "—"}
             </div>
           </div>
         </div>
@@ -277,6 +288,8 @@ export default function IdentityDashboard() {
           </div>
         </section>
       </div>
+
+      {showImport && <ChatGPTImport onClose={() => setShowImport(false)} />}
     </div>
   );
 }

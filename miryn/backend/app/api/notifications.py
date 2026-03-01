@@ -1,10 +1,48 @@
 from fastapi import APIRouter, Depends
 from datetime import datetime, timezone
+import json
 from sqlalchemy import text
 from app.core.database import get_db, has_sql, get_sql_session
 from app.core.security import get_current_user_id
+from app.schemas.notifications import NotificationPreferences
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@router.patch("/preferences")
+def update_preferences(payload: NotificationPreferences, user_id: str = Depends(get_current_user_id)):
+    prefs = {
+        "checkin_reminders": payload.checkin_reminders,
+        "weekly_digest": payload.weekly_digest,
+        "browser_push": payload.browser_push,
+    }
+    
+    if has_sql():
+        with get_sql_session() as session:
+            session.execute(
+                text(
+                    """
+                    UPDATE users
+                    SET notification_preferences = :prefs,
+                        data_retention = :retention
+                    WHERE id = :user_id
+                    """
+                ),
+                {
+                    "prefs": json.dumps(prefs),
+                    "retention": payload.data_retention,
+                    "user_id": user_id
+                },
+            )
+            session.commit()
+    else:
+        db = get_db()
+        db.table("users").update({
+            "notification_preferences": prefs,
+            "data_retention": payload.data_retention
+        }).eq("id", user_id).execute()
+        
+    return {"message": "Preferences updated"}
 
 
 @router.get("/")

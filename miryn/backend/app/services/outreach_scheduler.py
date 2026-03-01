@@ -17,88 +17,108 @@ class OutreachScheduler:
         """
         self.threshold_days = 2
 
-    def scan(self) -> int:
+    def scan(self) -> List[Dict]:
         """
-        Scan for stale open loops and high-confidence identity patterns, create follow-up notifications, persist them, publish notification events, and enqueue outreach jobs.
-        
-        This method computes a cutoff time using the instance's threshold_days, selects identity_open_loops with status "open" that either have no last_mentioned or were last mentioned on or before the cutoff, and selects identity_patterns with confidence >= 0.7. It builds notification records for matching open loops and patterns, inserts those records into the notifications store (using the available SQL or DB abstraction path), publishes a "notification.new" event for each notification, and enqueues an "outreach" job for each.
+        Scan for stale open loops and high-confidence identity patterns.
+        Fetches user emails to facilitate direct outreach.
         
         Returns:
-            int: The number of notifications created and processed.
+            List[Dict]: A list of discovered items (loops and patterns) with user metadata.
         """
         cutoff = datetime.utcnow() - timedelta(days=self.threshold_days)
+        discovered = []
+
         if has_sql():
             with get_sql_session() as session:
+                # Join with users table to get email
                 rows = session.execute(
                     text(
                         """
-                        SELECT user_id, topic, last_mentioned
-                        FROM identity_open_loops
-                        WHERE status = 'open'
-                          AND (last_mentioned IS NULL OR last_mentioned <= :cutoff)
+                        SELECT l.user_id, l.topic, l.last_mentioned, u.email
+                        FROM identity_open_loops l
+                        JOIN users u ON l.user_id = u.id
+                        WHERE l.status = 'open'
+                          AND (l.last_mentioned IS NULL OR l.last_mentioned <= :cutoff)
                         """
                     ),
                     {"cutoff": cutoff},
                 ).mappings().all()
+                
+                for row in rows:
+                    discovered.append({
+                        "user_id": str(row["user_id"]),
+                        "user_email": row["email"],
+                        "type": "open_loop",
+                        "topic": row["topic"]
+                    })
+
                 pattern_rows = session.execute(
                     text(
                         """
-                        SELECT user_id, pattern_type, description, confidence
-                        FROM identity_patterns
-                        WHERE confidence >= 0.7
+                        SELECT p.user_id, p.pattern_type, p.description, p.confidence, u.email
+                        FROM identity_patterns p
+                        JOIN users u ON p.user_id = u.id
+                        WHERE p.confidence >= 0.7
                         """
                     )
                 ).mappings().all()
-            notifications = self._build_notifications(rows, pattern_rows)
-            if notifications:
-                with get_sql_session() as session:
-                    for note in notifications:
-                        session.execute(
-                            text(
-                                """
-                                INSERT INTO notifications (user_id, type, payload, status, created_at)
-                                VALUES (:user_id, :type, :payload, :status, :created_at)
-                                """
-                            ),
-                            self._prepare_sql_note(note),
-                        )
-                    session.commit()
-            for note in notifications:
-                publish_event(note["user_id"], {"type": "notification.new", "payload": note})
-                enqueue_job("outreach", note)
-            return len(notifications)
+                
+                for row in pattern_rows:
+                    discovered.append({
+                        "user_id": str(row["user_id"]),
+                        "user_email": row["email"],
+                        "type": "pattern",
+                        "description": row["description"] or row["pattern_type"]
+                    })
+            return discovered
 
         db = get_db()
+        # Supabase path
         response = (
             db.table("identity_open_loops")
             .select("user_id, topic, last_mentioned")
             .eq("status", "open")
             .execute()
         )
-        rows = [row for row in (response.data or []) if row]
-        filtered = []
-        for row in rows:
-            last = row.get("last_mentioned")
+        loops = response.data or []
+        
+        for loop in loops:
+            last = loop.get("last_mentioned")
+            is_stale = False
             if not last:
-                filtered.append(row)
-                continue
-            try:
-                if datetime.fromisoformat(str(last).replace("Z", "+00:00")) <= cutoff:
-                    filtered.append(row)
-            except Exception:
-                continue
-        pattern_response = db.table("identity_patterns").select("user_id, pattern_type, description, confidence").execute()
-        pattern_rows = [
-            row for row in (pattern_response.data or []) if row and (row.get("confidence", 0) >= 0.7)
-        ]
-        notifications = self._build_notifications(filtered, pattern_rows)
-        if notifications:
-            serialized = self._serialize_notifications(notifications)
-            db.table("notifications").insert(serialized).execute()
-        for note in notifications:
-            publish_event(note["user_id"], {"type": "notification.new", "payload": note})
-            enqueue_job("outreach", note)
-        return len(notifications)
+                is_stale = True
+            else:
+                try:
+                    if datetime.fromisoformat(str(last).replace("Z", "+00:00")) <= cutoff:
+                        is_stale = True
+                except Exception:
+                    continue
+            
+            if is_stale:
+                # Fetch user email
+                user_res = db.table("users").select("email").eq("id", loop["user_id"]).single().execute()
+                email = user_res.data.get("email") if user_res.data else "unknown@example.com"
+                discovered.append({
+                    "user_id": loop["user_id"],
+                    "user_email": email,
+                    "type": "open_loop",
+                    "topic": loop["topic"]
+                })
+
+        pattern_res = db.table("identity_patterns").select("user_id, pattern_type, description, confidence").execute()
+        patterns = [p for p in (pattern_res.data or []) if p.get("confidence", 0) >= 0.7]
+        
+        for p in patterns:
+            user_res = db.table("users").select("email").eq("id", p["user_id"]).single().execute()
+            email = user_res.data.get("email") if user_res.data else "unknown@example.com"
+            discovered.append({
+                "user_id": p["user_id"],
+                "user_email": email,
+                "type": "pattern",
+                "description": p["description"] or p["pattern_type"]
+            })
+            
+        return discovered
 
     def _build_notifications(self, rows: List[Dict], pattern_rows: List[Dict]) -> List[Dict]:
         """

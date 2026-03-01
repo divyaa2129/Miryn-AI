@@ -12,7 +12,7 @@ from app.core.security import get_password_hash, verify_password, create_access_
 from app.core.cache import redis_client
 from app.core.audit import log_event
 from app.config import settings
-from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, UserOut, ForgotPasswordRequest, ResetPasswordRequest, GoogleLoginRequest
+from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, UserOut, ForgotPasswordRequest, ResetPasswordRequest, GoogleLoginRequest, PasswordUpdate, SessionOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -424,3 +424,85 @@ def delete_account(user_id: str = Depends(get_current_user_id)):
         ).eq("id", user_id).execute()
 
     return {"message": "Account deleted"}
+
+
+@router.get("/me")
+def get_me(user_id: str = Depends(get_current_user_id)):
+    if has_sql():
+        with get_sql_session() as session:
+            user = session.execute(
+                text("SELECT id, email, password_hash, notification_preferences, data_retention FROM users WHERE id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+    else:
+        db = get_db()
+        res = db.table("users").select("id, email, password_hash, notification_preferences, data_retention").eq("id", user_id).single().execute()
+        user = res.data
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "id": str(user["id"]),
+        "email": user["email"],
+        "has_password": user["password_hash"] is not None,
+        "notification_preferences": user.get("notification_preferences") or {
+            "checkin_reminders": True,
+            "weekly_digest": True,
+            "browser_push": False
+        },
+        "data_retention": user.get("data_retention") or "forever",
+        "encryption_enabled": settings.ENCRYPTION_KEY is not None and len(settings.ENCRYPTION_KEY) > 0
+    }
+
+
+@router.patch("/password")
+def update_password(payload: PasswordUpdate, user_id: str = Depends(get_current_user_id)):
+    if has_sql():
+        with get_sql_session() as session:
+            user = session.execute(
+                text("SELECT password_hash FROM users WHERE id = :user_id"),
+                {"user_id": user_id},
+            ).mappings().first()
+            
+            if not user or not user["password_hash"] or not verify_password(payload.current_password, user["password_hash"]):
+                raise HTTPException(status_code=400, detail="Invalid current password")
+            
+            session.execute(
+                text("UPDATE users SET password_hash = :hash WHERE id = :user_id"),
+                {"hash": get_password_hash(payload.new_password), "user_id": user_id},
+            )
+            session.commit()
+    else:
+        db = get_db()
+        res = db.table("users").select("password_hash").eq("id", user_id).single().execute()
+        user = res.data
+        if not user or not user["password_hash"] or not verify_password(payload.current_password, user["password_hash"]):
+            raise HTTPException(status_code=400, detail="Invalid current password")
+        
+        db.table("users").update({"password_hash": get_password_hash(payload.new_password)}).eq("id", user_id).execute()
+        
+    return {"message": "Password updated"}
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+def get_sessions(user_id: str = Depends(get_current_user_id)):
+    if has_sql():
+        with get_sql_session() as session:
+            rows = session.execute(
+                text(
+                    """
+                    SELECT ip, created_at as timestamp
+                    FROM audit_logs
+                    WHERE user_id = :user_id AND event_type = 'auth.login'
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                    """
+                ),
+                {"user_id": user_id},
+            ).mappings().all()
+            return [dict(row) for row in rows]
+    else:
+        db = get_db()
+        res = db.table("audit_logs").select("ip, created_at").eq("user_id", user_id).eq("event_type", "auth.login").order("created_at", desc=True).limit(5).execute()
+        return [{"ip": r["ip"], "timestamp": r["created_at"]} for r in (res.data or [])]

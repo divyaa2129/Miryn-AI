@@ -297,8 +297,12 @@ export default function LandingPage() {
           <div className="mt-4 text-secondary">— Sahil</div>
         </motion.section>
 
-        <footer className="mx-auto max-w-6xl px-6 py-10 border-t border-white/10 text-xs text-secondary">
-          Project Miryn © 2026
+        <footer className="mx-auto max-w-6xl px-6 py-10 border-t border-white/10 text-xs text-secondary flex flex-wrap justify-between items-center gap-4">
+          <div>Project Miryn © 2026</div>
+          <div className="flex gap-6">
+            <a href="/privacy" className="hover:text-white transition-colors">Privacy</a>
+            <a href="/terms" className="hover:text-white transition-colors">Terms</a>
+          </div>
         </footer>
       </div>
     </main>

@@ -154,3 +154,32 @@ export type Notification = {
   created_at?: string;
   read_at?: string | null;
 };
+
+export type Session = {
+  ip: string;
+  timestamp: string;
+};
+
+export type NotificationPreferences = {
+  checkin_reminders: boolean;
+  weekly_digest: boolean;
+  browser_push: boolean;
+  data_retention: string;
+};
+
+export type User = {
+  id: string;
+  email: string;
+  has_password: boolean;
+  notification_preferences: NotificationPreferences;
+  data_retention: string;
+  encryption_enabled: boolean;
+};
+
+export type ImportStatus = {
+  status: "none" | "processing" | "complete" | "error";
+  progress?: number;
+  message?: string;
+  conversations_processed?: number;
+  memories_added?: number;
+};

@@ -1,12 +1,15 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from app.core.database import get_db, has_sql, get_sql_session
 from app.core.security import get_current_user_id
 from app.core.encryption import decrypt_text
+from app.services.identity_engine import IdentityEngine
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+identity_engine = IdentityEngine()
 
 
 def _hydrate_message(row: dict) -> dict:
@@ -46,6 +49,49 @@ def _has_primary_emotion(metadata: dict | None) -> bool:
 
 def _strip_memory_fields(item: dict) -> dict:
     return {k: v for k, v in item.items() if k not in {"metadata", "role"}}
+
+
+def _get_all_memories(user_id: str) -> list[dict]:
+    now = datetime.now(timezone.utc)
+    if has_sql():
+        with get_sql_session() as session:
+            rows = session.execute(
+                text(
+                    """
+                    SELECT * FROM messages
+                    WHERE user_id = :user_id
+                      AND (delete_at IS NULL OR delete_at > :now)
+                    ORDER BY created_at DESC
+                    """
+                ),
+                {"user_id": user_id, "now": now},
+            ).mappings().all()
+            return [_hydrate_message(dict(row)) for row in rows]
+
+    db = get_db()
+    response = (
+        db.table("messages")
+        .select("*")
+        .eq("user_id", user_id)
+        .or_(f"delete_at.is.null,delete_at.gt.{now.isoformat()}")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return [_hydrate_message(row) for row in (response.data or [])]
+
+
+@router.get("/export")
+def export_user_data(user_id: str = Depends(get_current_user_id)):
+    identity = identity_engine.get_identity(user_id)
+    memories = _get_all_memories(user_id)
+    return JSONResponse(
+        content={
+            "identity": identity,
+            "memories": memories,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        },
+        headers={"Content-Disposition": "attachment; filename=miryn_data.json"},
+    )
 
 
 @router.get("/")

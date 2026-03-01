@@ -6,7 +6,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.core.database import get_sql_session
 from app.core.cache import redis_client
-from app.api import auth, chat, identity, onboarding, llm, notifications, tools, memory
+from app.api import auth, chat, identity, onboarding, llm, notifications, tools, memory, import_data
 from app.core.rate_limit import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ app.include_router(llm.router)
 app.include_router(notifications.router)
 app.include_router(tools.router)
 app.include_router(memory.router)
+app.include_router(import_data.router)
 
 
 @app.exception_handler(Exception)
