@@ -136,6 +136,7 @@ class ConversationOrchestrator:
             return {
                 "response": fallback,
                 "insights": {},
+                "conflicts": [],
                 "entities": [],
                 "emotions": {},
             }
@@ -157,6 +158,7 @@ class ConversationOrchestrator:
             return {
                 "response": fallback,
                 "insights": {},
+                "conflicts": [],
                 "entities": [],
                 "emotions": {},
             }
@@ -173,9 +175,9 @@ class ConversationOrchestrator:
 
         conversation_data = {"user": message, "assistant": response}
 
-        # DS Service — extract entities and emotions from user message
-        entities = ds_service.extract_entities(message)
-        emotions = ds_service.detect_emotions(message)
+        # DS Service — run off event loop to avoid blocking
+        entities = await asyncio.to_thread(ds_service.extract_entities, message)
+        emotions = await asyncio.to_thread(ds_service.detect_emotions, message)
 
         insights: Dict = {}
 
