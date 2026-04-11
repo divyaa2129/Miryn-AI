@@ -1,6 +1,7 @@
 from typing import Dict
 import asyncio
 import logging
+from datetime import datetime
 from app.services.identity_engine import IdentityEngine
 from app.services.memory_layer import MemoryLayer
 from app.services.reflection_engine import ReflectionEngine
@@ -25,9 +26,9 @@ class ConversationOrchestrator:
 
         Returns:
             result (Dict): A dictionary with keys:
-                - "response" (str): The assistant's reply, or a fallback message if LLM generation failed.
-                - "insights" (Dict): Reflection analysis results for the conversation.
-                - "conflicts" (List): Any identity conflicts detected for the user's message.
+                - "response" (str): The assistant reply or fallback message.
+                - "insights" (Dict): Reflection analysis results.
+                - "conflicts" (List): Identity conflicts detected.
                 - "entities" (List): Named entities extracted from the user message.
                 - "emotions" (Dict): Emotions detected in the user message.
         """
@@ -66,16 +67,6 @@ class ConversationOrchestrator:
                     self.logger.exception("%s task failed for user %s", label, user_id)
 
             task.add_done_callback(_done)
-
-        _fire_and_forget(
-            self.memory.store_conversation(
-                user_id=user_id,
-                role="user",
-                content=message,
-                conversation_id=conversation_id,
-            ),
-            "store_user_message",
-        )
 
         conflicts = []
         if settings.ENABLE_INLINE_CONFLICT_DETECTION:
@@ -161,6 +152,28 @@ class ConversationOrchestrator:
                 "emotions": {},
             }
 
+        # DS Service — run concurrently off the event loop
+        entities, emotions = await asyncio.gather(
+            asyncio.to_thread(ds_service.extract_entities, message),
+            asyncio.to_thread(ds_service.detect_emotions, message),
+        )
+
+        # Store user message WITH emotions and entities as metadata (data logging)
+        _fire_and_forget(
+            self.memory.store_conversation(
+                user_id=user_id,
+                role="user",
+                content=message,
+                conversation_id=conversation_id,
+                metadata={
+                    "emotions": emotions if isinstance(emotions, dict) else {},
+                    "entities": entities if isinstance(entities, list) else [],
+                    "logged_at": datetime.utcnow().isoformat(),
+                },
+            ),
+            "store_user_message",
+        )
+
         _fire_and_forget(
             self.memory.store_conversation(
                 user_id=user_id,
@@ -172,12 +185,6 @@ class ConversationOrchestrator:
         )
 
         conversation_data = {"user": message, "assistant": response}
-
-        # DS Service — run concurrently off the event loop
-        entities, emotions = await asyncio.gather(
-            asyncio.to_thread(ds_service.extract_entities, message),
-            asyncio.to_thread(ds_service.detect_emotions, message),
-        )
 
         insights: Dict = {}
 
