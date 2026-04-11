@@ -26,9 +26,9 @@ class ConversationOrchestrator:
 
         Returns:
             result (Dict): A dictionary with keys:
-                - "response" (str): The assistant reply or fallback message.
-                - "insights" (Dict): Reflection analysis results.
-                - "conflicts" (List): Identity conflicts detected.
+                - "response" (str): The assistant's reply, or a fallback message if LLM generation failed.
+                - "insights" (Dict): Reflection analysis results for the conversation.
+                - "conflicts" (List): Any identity conflicts detected for the user's message.
                 - "entities" (List): Named entities extracted from the user message.
                 - "emotions" (Dict): Emotions detected in the user message.
         """
@@ -152,7 +152,7 @@ class ConversationOrchestrator:
                 "emotions": {},
             }
 
-        # DS Service — run concurrently off the event loop
+        # DS Service - run concurrently off the event loop
         entities, emotions = await asyncio.gather(
             asyncio.to_thread(ds_service.extract_entities, message),
             asyncio.to_thread(ds_service.detect_emotions, message),
@@ -185,7 +185,6 @@ class ConversationOrchestrator:
         )
 
         conversation_data = {"user": message, "assistant": response}
-
         insights: Dict = {}
 
         # Queue reflection asynchronously via Celery instead of running inline
