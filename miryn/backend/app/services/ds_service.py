@@ -24,6 +24,7 @@ class DSService:
         self._sentence_failed = False
 
     def _load_spacy(self):
+        """Load and cache the spaCy NLP model, returning None if unavailable."""
         if self._nlp is not None:
             return self._nlp
         if self._nlp_failed:
@@ -38,6 +39,7 @@ class DSService:
         return self._nlp
 
     def _load_emotion_model(self):
+        """Load and cache the HuggingFace emotion classifier, returning None if unavailable."""
         if self._emotion_classifier is not None:
             return self._emotion_classifier
         if self._emotion_failed:
@@ -56,6 +58,7 @@ class DSService:
         return self._emotion_classifier
 
     def _load_sentence_model(self):
+        """Load and cache the sentence transformer model, returning None if unavailable."""
         if self._sentence_model is not None:
             return self._sentence_model
         if self._sentence_failed:
@@ -79,7 +82,7 @@ class DSService:
         if not nlp:
             return []
         try:
-            doc = nlp(text[:1000])  # limit input size
+            doc = nlp(text[:1000])
             return [
                 {"text": ent.text, "label": ent.label_}
                 for ent in doc.ents
