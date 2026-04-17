@@ -49,8 +49,10 @@ app.include_router(import_data.router)
 app.include_router(analytics_router)
 app.include_router(memory_ranking_router)
 
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Handle uncaught exceptions by returning a 500 JSON response."""
     logger.exception("Unhandled exception on %s %s", request.method, request.url.path, exc_info=exc)
     origin = request.headers.get("origin", "")
     headers = {}
@@ -63,9 +65,11 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
         headers=headers,
     )
 
+
 @app.get("/")
 def root():
     return {"message": "Miryn API v0.1.0"}
+
 
 @app.get("/health")
 async def health_check():
